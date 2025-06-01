@@ -454,7 +454,9 @@ pub fn core_main() -> Option<Vec<String>> {
             }
             return None;
         } else if args[0] == "--assign" {
-            if crate::platform::is_installed() && is_root() {
+            if config::Config::no_register_device() {
+                println!("Cannot assign an unregistrable device!");
+            } else if crate::platform::is_installed() && is_root() {
                 let max = args.len() - 1;
                 let pos = args.iter().position(|x| x == "--token").unwrap_or(max);
                 if pos < max {
@@ -490,6 +492,14 @@ pub fn core_main() -> Option<Vec<String>> {
                     if pos < max {
                         address_book_tag = Some(args[pos + 1].to_owned());
                     }
+                    let mut address_book_alias = None;
+                    let pos = args
+                        .iter()
+                        .position(|x| x == "--address_book_alias")
+                        .unwrap_or(max);
+                    if pos < max {
+                        address_book_alias = Some(args[pos + 1].to_owned());
+                    }
                     let mut device_group_name = None;
                     let pos = args
                         .iter()
@@ -522,6 +532,9 @@ pub fn core_main() -> Option<Vec<String>> {
                             body["address_book_name"] = serde_json::json!(name);
                             if let Some(name) = address_book_tag {
                                 body["address_book_tag"] = serde_json::json!(name);
+                            }
+                            if let Some(name) = address_book_alias {
+                                body["address_book_alias"] = serde_json::json!(name);
                             }
                         }
                         if let Some(name) = device_group_name {
