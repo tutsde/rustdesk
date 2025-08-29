@@ -26,9 +26,7 @@ use hbb_common::{
     config::{self, keys::OPTION_ALLOW_WEBSOCKET, Config, Config2},
     futures::StreamExt as _,
     futures_util::sink::SinkExt,
-    log,
-    message_proto::FileTransferSendConfirmRequest,
-    password_security as password, timeout,
+    log, password_security as password, timeout,
     tokio::{
         self,
         io::{AsyncRead, AsyncWrite},
@@ -106,6 +104,7 @@ pub enum FS {
         file_size: u64,
         last_modified: u64,
         is_upload: bool,
+        is_resume: bool,
     },
     SendConfirm(Vec<u8>),
     Rename {
@@ -178,7 +177,7 @@ pub enum DataPortableService {
     Ping,
     Pong,
     ConnCount(Option<usize>),
-    Mouse((Vec<u8>, i32)),
+    Mouse((Vec<u8>, i32, String, u32, bool, bool)),
     Pointer((Vec<u8>, i32)),
     Key(Vec<u8>),
     RequestStart,
@@ -290,6 +289,8 @@ pub enum Data {
     #[cfg(target_os = "windows")]
     PortForwardSessionCount(Option<usize>),
     SocksWs(Option<Box<(Option<config::Socks5Server>, String)>>),
+    #[cfg(target_os = "windows")]
+    Whiteboard((String, crate::whiteboard::CustomEvent)),
 }
 
 #[tokio::main(flavor = "current_thread")]
