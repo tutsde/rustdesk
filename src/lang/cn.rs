@@ -384,7 +384,6 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("Show RustDesk", "显示 RustDesk"),
         ("This PC", "此电脑"),
         ("or", "或"),
-        ("Continue with", "使用"),
         ("Elevate", "提权"),
         ("Zoom cursor", "缩放光标"),
         ("Accept sessions via password", "只允许密码访问"),
@@ -737,5 +736,9 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("rel-mouse-exit-{}-tip", "按下 {} 退出"),
         ("rel-mouse-permission-lost-tip", "键盘权限被撤销。相对鼠标模式已被禁用。"),
         ("Changelog", "更新日志"),
+        ("keep-awake-during-outgoing-sessions-label", "传出会话期间保持屏幕常亮"),
+        ("keep-awake-during-incoming-sessions-label", "传入会话期间保持屏幕常亮"),
+        ("Continue with {}", "使用 {} 登录"),
+        ("Display Name", "显示名称"),
     ].iter().cloned().collect();
 }

@@ -557,6 +557,17 @@ class _GeneralState extends State<_General> {
         ],
       ],
     ];
+
+    // Add client-side wakelock option for desktop platforms
+    if (!bind.isIncomingOnly()) {
+      children.add(_OptionCheckBox(
+        context,
+        'keep-awake-during-outgoing-sessions-label',
+        kOptionKeepAwakeDuringOutgoingSessions,
+        isServer: false,
+      ));
+    }
+
     if (!isWeb && bind.mainShowOption(key: kOptionAllowLinuxHeadless)) {
       children.add(_OptionCheckBox(
           context, 'Allow linux headless', kOptionAllowLinuxHeadless));
@@ -1219,6 +1230,9 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
       ...directIp(context),
       whitelist(),
       ...autoDisconnect(context),
+      _OptionCheckBox(context, 'keep-awake-during-incoming-sessions-label',
+          kOptionKeepAwakeDuringIncomingSessions,
+          reverse: false, enabled: enabled),
       if (bind.mainIsInstalled())
         _OptionCheckBox(context, 'allow-only-conn-window-open-tip',
             'allow-only-conn-window-open',
@@ -2002,7 +2016,9 @@ class _AccountState extends State<_Account> {
 
   Widget accountAction() {
     return Obx(() => _Button(
-        gFFI.userModel.userName.value.isEmpty ? 'Login' : 'Logout',
+        gFFI.userModel.userName.value.isEmpty
+            ? 'Login'
+            : '${translate('Logout')} (${gFFI.userModel.accountLabelWithHandle})',
         () => {
               gFFI.userModel.userName.value.isEmpty
                   ? loginDialog()
@@ -2023,6 +2039,10 @@ class _AccountState extends State<_Account> {
           offstage: gFFI.userModel.userName.value.isEmpty,
           child: Column(
             children: [
+              if (gFFI.userModel.displayName.value.trim().isNotEmpty &&
+                  gFFI.userModel.displayName.value.trim() !=
+                      gFFI.userModel.userName.value.trim())
+                text('Display Name', gFFI.userModel.displayName.value.trim()),
               text('Username', gFFI.userModel.userName.value),
               // text('Group', gFFI.groupModel.groupName.value),
             ],
@@ -2116,7 +2136,9 @@ class _PluginState extends State<_Plugin> {
 
   Widget accountAction() {
     return Obx(() => _Button(
-        gFFI.userModel.userName.value.isEmpty ? 'Login' : 'Logout',
+        gFFI.userModel.userName.value.isEmpty
+            ? 'Login'
+            : '${translate('Logout')} (${gFFI.userModel.accountLabelWithHandle})',
         () => {
               gFFI.userModel.userName.value.isEmpty
                   ? loginDialog()
@@ -2524,6 +2546,49 @@ class WaylandCard extends StatefulWidget {
 
 class _WaylandCardState extends State<WaylandCard> {
   final restoreTokenKey = 'wayland-restore-token';
+  static const _kClearShortcutsInhibitorEventKey =
+      'clear-gnome-shortcuts-inhibitor-permission-res';
+  final _clearShortcutsInhibitorFailedMsg = ''.obs;
+  // Don't show the shortcuts permission reset button for now.
+  // Users can change it manually:
+  //   "Settings" -> "Apps" -> "RustDesk" -> "Permissions" -> "Inhibit Shortcuts".
+  // For resetting(clearing) the permission from the portal permission store, you can
+  // use (replace <desktop-id> with the RustDesk desktop file ID):
+  //   busctl --user call org.freedesktop.impl.portal.PermissionStore \
+  //   /org/freedesktop/impl/portal/PermissionStore org.freedesktop.impl.portal.PermissionStore \
+  //   DeletePermission sss "gnome" "shortcuts-inhibitor" "<desktop-id>"
+  // On a native install this is typically "rustdesk.desktop"; on Flatpak it is usually
+  // the exported desktop ID derived from the Flatpak app-id (e.g. "com.rustdesk.RustDesk.desktop").
+  //
+  // We may add it back in the future if needed.
+  final showResetInhibitorPermission = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (showResetInhibitorPermission) {
+      platformFFI.registerEventHandler(
+          _kClearShortcutsInhibitorEventKey, _kClearShortcutsInhibitorEventKey,
+          (evt) async {
+        if (!mounted) return;
+        if (evt['success'] == true) {
+          setState(() {});
+        } else {
+          _clearShortcutsInhibitorFailedMsg.value =
+              evt['msg'] as String? ?? 'Unknown error';
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    if (showResetInhibitorPermission) {
+      platformFFI.unregisterEventHandler(
+          _kClearShortcutsInhibitorEventKey, _kClearShortcutsInhibitorEventKey);
+    }
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2531,9 +2596,16 @@ class _WaylandCardState extends State<WaylandCard> {
       future: bind.mainHandleWaylandScreencastRestoreToken(
           key: restoreTokenKey, value: "get"),
       hasData: (restoreToken) {
+        final hasShortcutsPermission = showResetInhibitorPermission &&
+            bind.mainGetCommonSync(
+                    key: "has-gnome-shortcuts-inhibitor-permission") ==
+                "true";
+
         final children = [
           if (restoreToken.isNotEmpty)
             _buildClearScreenSelection(context, restoreToken),
+          if (hasShortcutsPermission)
+            _buildClearShortcutsInhibitorPermission(context),
         ];
         return Offstage(
           offstage: children.isEmpty,
@@ -2577,6 +2649,50 @@ class _WaylandCardState extends State<WaylandCard> {
             Theme.of(context).colorScheme.error.withOpacity(0.75)),
       ),
     );
+  }
+
+  Widget _buildClearShortcutsInhibitorPermission(BuildContext context) {
+    onConfirm() {
+      _clearShortcutsInhibitorFailedMsg.value = '';
+      bind.mainSetCommon(
+          key: "clear-gnome-shortcuts-inhibitor-permission", value: "");
+      gFFI.dialogManager.dismissAll();
+    }
+
+    showConfirmMsgBox() => msgBoxCommon(
+            gFFI.dialogManager,
+            'Confirmation',
+            Text(
+              translate('confirm-clear-shortcuts-inhibitor-permission-tip'),
+            ),
+            [
+              dialogButton('OK', onPressed: onConfirm),
+              dialogButton('Cancel',
+                  onPressed: () => gFFI.dialogManager.dismissAll())
+            ]);
+
+    return Column(children: [
+      Obx(
+        () => _clearShortcutsInhibitorFailedMsg.value.isEmpty
+            ? Offstage()
+            : Align(
+                alignment: Alignment.topLeft,
+                child: Text(_clearShortcutsInhibitorFailedMsg.value,
+                        style: DefaultTextStyle.of(context)
+                            .style
+                            .copyWith(color: Colors.red))
+                    .marginOnly(bottom: 10.0)),
+      ),
+      _Button(
+        'Reset keyboard shortcuts permission',
+        showConfirmMsgBox,
+        tip: 'clear-shortcuts-inhibitor-permission-tip',
+        style: ButtonStyle(
+          backgroundColor: MaterialStateProperty.all<Color>(
+              Theme.of(context).colorScheme.error.withOpacity(0.75)),
+        ),
+      ),
+    ]);
   }
 }
 

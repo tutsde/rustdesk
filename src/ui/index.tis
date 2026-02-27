@@ -268,6 +268,7 @@ class Enhancements: Reactor.Component {
                 <li #enable-abr><span>{svg_checkmark}</span>{translate("Adaptive bitrate")} (beta)</li>
                 <li #screen-recording>{translate("Recording")}</li>
                 {support_remove_wallpaper ? <li #allow-remove-wallpaper><span>{svg_checkmark}</span>{translate("Remove wallpaper during incoming sessions")}</li> : ""}
+                <li #keep-awake-during-incoming-sessions><span>{svg_checkmark}</span>{translate("keep-awake-during-incoming-sessions-label")}</li>
             </menu>
         </li>;
     }
@@ -283,6 +284,13 @@ class Enhancements: Reactor.Component {
                 }
             } else if (el.id && el.id.indexOf("allow-") == 0) {
                 var enabled = handler.get_option(el.id) == "Y";
+                el.attributes.toggleClass("selected", enabled);
+                var is_opt_fixed = handler.is_option_fixed(el.id);
+                if (is_opt_fixed) {
+                    el.state.disabled = true;
+                }
+            } else if (el.id == "keep-awake-during-incoming-sessions") {
+                var enabled = handler.get_option(el.id) != "N";
                 el.attributes.toggleClass("selected", enabled);
                 var is_opt_fixed = handler.is_option_fixed(el.id);
                 if (is_opt_fixed) {
@@ -304,6 +312,8 @@ class Enhancements: Reactor.Component {
             }
         } else if (v.indexOf("allow-") == 0) {
             handler.set_option(v, handler.get_option(v) == 'Y' ? default_option_no : 'Y');
+        } else if (v == 'keep-awake-during-incoming-sessions') {
+            handler.set_option(v, handler.get_option(v) != 'N' ? 'N' : default_option_yes);
         } else if (v == 'screen-recording') {
             var show_root_dir = is_win && handler.is_installed();
             var user_dir = handler.video_save_directory(false);
@@ -344,6 +354,22 @@ class Enhancements: Reactor.Component {
 function getUserName() {
     try {
         return JSON.parse(handler.get_local_option("user_info")).name;
+    } catch(e) {}
+    return '';
+}
+
+function getAccountLabelWithHandle() {
+    try {
+        var user = JSON.parse(handler.get_local_option("user_info"));
+        var username = (user.name || '').trim();
+        if (!username) {
+            return '';
+        }
+        var displayName = (user.display_name || '').trim();
+        if (!displayName || displayName == username) {
+            return username;
+        }
+        return displayName + " (@" + username + ")";
     } catch(e) {}
     return '';
 }
@@ -483,7 +509,7 @@ class MyIdMenu: Reactor.Component {
     }
 
     function renderPop() {
-        var username = handler.get_local_option("access_token") ? getUserName() : '';
+        var accountLabel = handler.get_local_option("access_token") ? getAccountLabelWithHandle() : '';
         return <popup>
             <menu.context #config-options>
                 {!disable_settings && <li #enable-keyboard><span>{svg_checkmark}</span>{translate('Enable keyboard/mouse')}</li>}
@@ -511,8 +537,8 @@ class MyIdMenu: Reactor.Component {
                 {!disable_settings && <DirectServer />}
                 {!disable_settings && false && handler.using_public_server() && <li #allow-always-relay><span>{svg_checkmark}</span>{translate('Always connect via relay')}</li>}
                 {!disable_change_id && handler.is_ok_change_id() ? <div .separator /> : ""}
-                {!disable_account && (username ?
-                <li #logout>{translate('Logout')} ({username})</li> :
+                {!disable_account && (accountLabel ?
+                <li #logout>{translate('Logout')} ({accountLabel})</li> :
                 <li #login>{translate('Login')}</li>)}
                 {!disable_change_id && !disable_settings && handler.is_ok_change_id() && key_confirmed && connect_status > 0 ? <li #change-id>{translate('Change ID')}</li> : ""}
                 <div .separator />
@@ -1420,6 +1446,9 @@ checkConnectStatus();
 
 function set_local_user_info(user) {
     var user_info = {name: user.name};
+    if (user.display_name) {
+        user_info.display_name = user.display_name;
+    }
     if (user.status) {
         user_info.status = user.status;
     }

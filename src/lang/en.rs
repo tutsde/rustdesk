@@ -220,7 +220,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("default_proxy_tip", "Default protocol and port are Socks5 and 1080"),
         ("no_audio_input_device_tip", "No audio input device found."),
         ("clear_Wayland_screen_selection_tip", "After clearing the screen selection, you can reselect the screen to share."),
-        ("confirm_clear_Wayland_screen_selection_tip", "Are you sure to clear the Wayland screen selection?"),
+        ("confirm_clear_Wayland_screen_selection_tip", "Are you sure you want to clear the Wayland screen selection?"),
         ("android_new_voice_call_tip", "A new voice call request was received. If you accept, the audio will switch to voice communication."),
         ("texture_render_tip", "Use texture rendering to make the pictures smoother. You could try disabling this option if you encounter rendering issues."),
         ("floating_window_tip", "It helps to keep RustDesk background service"),
@@ -267,5 +267,7 @@ pub static ref T: std::collections::HashMap<&'static str, &'static str> =
         ("rel-mouse-lock-failed-tip", "Failed to lock cursor. Relative Mouse Mode has been disabled."),
         ("rel-mouse-exit-{}-tip", "Press {} to exit."),
         ("rel-mouse-permission-lost-tip", "Keyboard permission was revoked. Relative Mouse Mode has been disabled."),
+        ("keep-awake-during-outgoing-sessions-label", "Keep screen awake during outgoing sessions"),
+        ("keep-awake-during-incoming-sessions-label", "Keep screen awake during incoming sessions"),
     ].iter().cloned().collect();
 }
