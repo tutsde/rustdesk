@@ -146,7 +146,13 @@ pub fn core_main() -> Option<Vec<String>> {
         crate::portable_service::client::set_quick_support(_is_quick_support);
     }
     let mut log_name = "".to_owned();
-    if args.len() > 0 && args[0].starts_with("--") {
+    // Keep portable-service logs under a stable directory name.
+    let has_portable_service_shmem_arg = args
+        .iter()
+        .any(|arg| arg.starts_with("--portable-service-shmem-name="));
+    if has_portable_service_shmem_arg {
+        log_name = "portable-service".to_owned();
+    } else if args.len() > 0 && args[0].starts_with("--") {
         let name = args[0].replace("--", "");
         if !name.is_empty() {
             log_name = name;
@@ -193,6 +199,20 @@ pub fn core_main() -> Option<Vec<String>> {
         }
         std::thread::spawn(move || crate::start_server(false, no_server));
     } else {
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        // Root CLI management commands must talk to the user `--server` main IPC.
+        // Example: `sudo rustdesk --option custom-rendezvous-server` should query the
+        // user's IPC instead of root's `/tmp/<app>-0/ipc`; `connect()` still limits this
+        // routing to empty-postfix main IPC only.
+        let _user_main_ipc_scope = if crate::platform::is_installed()
+            && is_root()
+            && is_user_main_ipc_scope_cli_command(&args)
+        {
+            Some(crate::ipc::UserMainIpcScope::new())
+        } else {
+            None
+        };
+
         #[cfg(windows)]
         {
             use crate::platform;
@@ -213,7 +233,7 @@ pub fn core_main() -> Option<Vec<String>> {
                     }
                     Ok(false) => "Update failed!".to_string(),
                     Ok(true) => match platform::update_me(false) {
-                        Ok(_) => "Update successfully!".to_string(),
+                        Ok(_) => "Updated successfully!".to_string(),
                         Err(err) => {
                             log::error!("Failed with error: {err}");
                             "Update failed!".to_string()
@@ -335,8 +355,8 @@ pub fn core_main() -> Option<Vec<String>> {
                     log::info!("Starting update process...");
                     let _text = match platform::update_me() {
                         Ok(_) => {
-                            println!("{}", translate("Update successfully!".to_string()));
-                            log::info!("Update successfully!");
+                            println!("{}", translate("Updated successfully!".to_string()));
+                            log::info!("Updated successfully!");
                         }
                         Err(err) => {
                             eprintln!("Update failed with error: {}", err);
@@ -412,7 +432,7 @@ pub fn core_main() -> Option<Vec<String>> {
             }
             return None;
         } else if args[0] == "--password" {
-            if config::is_disable_settings() {
+            if is_cli_setting_change_disabled() {
                 println!("Settings are disabled!");
                 return None;
             }
@@ -454,7 +474,7 @@ pub fn core_main() -> Option<Vec<String>> {
             println!("{}", crate::ipc::get_id());
             return None;
         } else if args[0] == "--set-id" {
-            if config::is_disable_settings() {
+            if is_cli_setting_change_disabled() {
                 println!("Settings are disabled!");
                 return None;
             }
@@ -501,7 +521,7 @@ pub fn core_main() -> Option<Vec<String>> {
             }
             return None;
         } else if args[0] == "--option" {
-            if config::is_disable_settings() {
+            if is_cli_setting_change_disabled() {
                 println!("Settings are disabled!");
                 return None;
             }
@@ -616,6 +636,56 @@ pub fn core_main() -> Option<Vec<String>> {
                     }
                 } else {
                     println!("--token is required!");
+                }
+            } else {
+                println!("Installation and administrative privileges required!");
+            }
+            return None;
+        } else if args[0] == "--deploy" {
+            if config::Config::no_register_device() {
+                println!("Cannot deploy an unregistrable device!");
+            } else if config::is_outgoing_only() {
+                println!("Cannot deploy Outgoing-only clients.");
+            } else if crate::platform::is_installed() && is_root() {
+                let max = args.len() - 1;
+                let pos = args.iter().position(|x| x == "--token").unwrap_or(max);
+                if pos >= max {
+                    println!("--token is required!");
+                    return None;
+                }
+                let token = args[pos + 1].to_owned();
+                let get_value = |c: &str| {
+                    let pos = args.iter().position(|x| x == c).unwrap_or(max);
+                    if pos < max {
+                        Some(args[pos + 1].to_owned())
+                    } else {
+                        None
+                    }
+                };
+                let new_id = get_value("--id");
+                match crate::ui_interface::deploy_device(token, new_id) {
+                    crate::ui_interface::DeployResult::Ok => {
+                        println!("Device deployed.");
+                    }
+                    crate::ui_interface::DeployResult::NotEnabled => {
+                        println!("Server does not require deployment.");
+                        std::process::exit(3);
+                    }
+                    crate::ui_interface::DeployResult::InvalidInput => {
+                        println!("Invalid input.");
+                        std::process::exit(5);
+                    }
+                    crate::ui_interface::DeployResult::IdTaken(id) => {
+                        println!(
+                            "Id `{}` is already used by another machine on the server.",
+                            id
+                        );
+                        std::process::exit(6);
+                    }
+                    crate::ui_interface::DeployResult::Error(err) => {
+                        println!("{}", err);
+                        std::process::exit(1);
+                    }
                 }
             } else {
                 println!("Installation and administrative privileges required!");
@@ -838,6 +908,65 @@ fn is_root() -> bool {
     }
     #[allow(unreachable_code)]
     crate::platform::is_root()
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
+fn is_user_main_ipc_scope_cli_command(args: &[String]) -> bool {
+    matches!(
+        args.first().map(String::as_str),
+        Some("--password")
+            | Some("--set-unlock-pin")
+            | Some("--get-id")
+            | Some("--set-id")
+            | Some("--config")
+            | Some("--option")
+            | Some("--assign")
+            | Some("--deploy")
+    )
+}
+
+#[inline]
+fn is_cli_setting_change_disabled() -> bool {
+    let option = config::keys::OPTION_ALLOW_COMMAND_LINE_SETTINGS_WHEN_SETTINGS_DISABLED;
+    let allow_command_line_settings =
+        config::option2bool(option, &crate::get_builtin_option(option));
+    config::is_disable_settings() && !allow_command_line_settings
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn user_main_ipc_scope_cli_command_matches_management_commands_only() {
+        for command in [
+            "--password",
+            "--set-unlock-pin",
+            "--get-id",
+            "--set-id",
+            "--config",
+            "--option",
+            "--assign",
+            "--deploy",
+        ] {
+            assert!(is_user_main_ipc_scope_cli_command(&args(&[command])));
+        }
+
+        for command in [
+            "--service",
+            "--server",
+            "--tray",
+            "--cm",
+            "--check-hwcodec-config",
+            "--connect",
+        ] {
+            assert!(!is_user_main_ipc_scope_cli_command(&args(&[command])));
+        }
+    }
 }
 
 /// Check if the executable is a Quick Support version.
