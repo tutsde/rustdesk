@@ -177,6 +177,12 @@ fn resolve_lang(saved_lang: &str, locale: &str, cjk_fallback: bool) -> String {
         } else if lang == "ka" {
             lang = "ge".to_owned();
         }
+        // Android 14 and older report Hebrew and Indonesian with their legacy codes (iw_IL, in_ID).
+        if lang == "iw" {
+            lang = "he".to_owned();
+        } else if lang == "in" {
+            lang = "id".to_owned();
+        }
     }
     if cjk_fallback && is_cjk_lang(&lang) {
         "en".to_owned()
@@ -387,6 +393,16 @@ mod test {
     }
 
     #[test]
+    fn test_resolve_lang_detects_hebrew_and_indonesian_from_legacy_android_codes() {
+        use super::resolve_lang as f;
+
+        assert_eq!(f("", "iw_IL", false), "he");
+        assert_eq!(f("", "in_ID", false), "id");
+        assert_eq!(f("", "he-IL", false), "he");
+        assert_eq!(f("", "id-ID", false), "id");
+    }
+
+    #[test]
     fn test_resolve_lang_detects_traditional_chinese_for_hong_kong_and_macao() {
         use super::resolve_lang as f;
 
@@ -406,6 +422,43 @@ mod test {
             for (key, value) in table.iter() {
                 if key.contains("{}") && !value.is_empty() {
                     assert!(value.contains("{}"), "{key:?} => {value:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_translations_keep_the_placeholders_of_their_english_text() {
+        use super::*;
+
+        // Some callers fill `{}` themselves (Dart `.replaceAll('{}', ...)`), so the English text,
+        // not only the key, decides how many `{}` a translation needs.
+        for table in [&*fa::T, &*nl::T, &*sc::T] {
+            for (key, value) in table.iter() {
+                if value.is_empty() {
+                    continue;
+                }
+                let english = en::T.get(key).filter(|v| !v.is_empty()).unwrap_or(key);
+                assert_eq!(
+                    english.matches("{}").count(),
+                    value.matches("{}").count(),
+                    "{key:?} => {value:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_translations_spell_the_app_name_as_rustdesk() {
+        use super::*;
+
+        // translate() swaps the exact "RustDesk" for a custom client's name, so any other
+        // spelling stays visible in custom clients.
+        let re = hbb_common::regex::Regex::new(r"(?i)\brus?t?desk\b").unwrap();
+        for table in [&*da::T, &*el::T, &*es::T, &*nl::T, &*uk::T] {
+            for (key, value) in table.iter() {
+                for found in re.find_iter(value) {
+                    assert_eq!(found.as_str(), "RustDesk", "{key:?} => {value:?}");
                 }
             }
         }
